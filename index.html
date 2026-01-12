@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Billar Survival - Mobile Pro</title>
-    <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#4caf50">
     <style>
         body { background: #1a1a1a; display: flex; flex-direction: column; align-items: center; color: white; font-family: 'Courier New', monospace; margin: 0; overflow: hidden; touch-action: none; }
         
@@ -45,6 +43,15 @@
 
         .stats { display: flex; justify-content: center; gap: 20px; background: #333; padding: 10px 20px; border: 2px solid #555; margin-top: 8px; border-radius: 20px; width: fit-content; }
         .hidden { display: none !important; }
+.energy-container { 
+            width: 90%; max-width: 900px; height: 12px; 
+            background: #444; margin: 10px auto; 
+            border-radius: 6px; overflow: hidden; border: 1px solid #000; 
+        }
+        #energy-bar { 
+            width: 100%; height: 100%; background: #ffeb3b; 
+            transition: width 0.1s linear; 
+        }
     </style>
 </head>
 <body>
@@ -67,15 +74,15 @@
             <button onclick="startGame()">JUGAR AHORA</button>
         </div>
     </div>
-
-    <div id="pause-menu" class="overlay hidden">
-        <div class="menu-card">
-            <h1 style="color: #4deeea;">JUEGO EN PAUSA</h1>
-            <button onclick="togglePause()">REANUDAR</button><br>
-            <button onclick="location.reload()" style="background: #f44336; box-shadow: 4px 4px 0px #b71c1c;">SALIR AL MENÚ</button>
-        </div>
-    </div>
-
+<div id="pause-menu" class="overlay hidden">
+    <div class="menu-card">
+    <h2 style="color: #4deeea; margin: 5px;">TIENDA DE SKINS</h2>
+    <p>Tus Coins: 💰 <span id="coin-count-ui">0</span></p>
+    <div id="skin-list" style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 15px;"></div>
+    <button onclick="togglePause()">REANUDAR</button><br>
+    <button onclick="location.reload()" style="background: #f44336; font-size: 14px;">SALIR</button>
+</div>
+</div>
     <div id="game-over" class="overlay hidden">
         <div class="menu-card">
             <h1 style="color: #ff5252;">¡BOOM!</h1>
@@ -90,13 +97,29 @@
         <div>⏱️: <span id="timer">01:30</span></div>
         <div id="status-effect" style="color:#00fbff; font-weight: bold;"></div>
     </div>
-
+<div class="energy-container">
+    <div id="energy-bar"></div>
+</div>
+<div id="camping-warning" style="color: #ff5252; font-weight: bold; font-size: 14px; text-align: center; height: 20px; opacity: 0; transition: 0.3s; margin-bottom: 5px;">
+        ⚠️ ¡MUÉVETE O EXPLOTARÁS! ⚠️
+    </div>
     <div class="table-frame">
         <div class="mobile-pause-btn" onclick="togglePause()">||</div>
         <canvas id="gameCanvas" width="900" height="550"></canvas>
     </div>
 
 <script>
+let coins = parseInt(localStorage.getItem('billarCoins')) || 0;
+let activeSkin = localStorage.getItem('billarSkin') || 'white';
+let ownedSkins = JSON.parse(localStorage.getItem('billarOwned')) || ['white'];
+
+// Definición de las skins disponibles
+const skinStore = [
+    { id: 'white', color: '#ffffff', name: 'Clásica' },
+    { id: 'gold', color: '#ffd700', name: 'Oro' },
+    { id: 'neon', color: '#39ff14', name: 'Neón' },
+    { id: 'fire', color: '#ff4500', name: 'Fuego' }
+];
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -104,7 +127,8 @@
     let ball, zones, particles, timeLeft, level, difficultyMultiplier, spawnRate, warningTime;
     let isStarted = false, isPaused = false, gameOver = false, isDrawing = false, curPos = {x:0, y:0};
     let gameIntervals = [];
-
+let energy = 100; 
+let energyDrain = 0.15; // Velocidad de descarga
     const diffs = [
         {name: "BASE", mult: 1.0, col: "#4deeea"},
         {name: "DIFICIL", mult: 1.4, col: "#4caf50"},
@@ -143,7 +167,7 @@
         const d = diffs[document.getElementById('diff-slider').value];
         difficultyMultiplier = d.mult;
         ball = { x: 450, y: 275, vx: 0, vy: 0, r: 15, f: 0.985, immune: false };
-        zones = []; particles = []; timeLeft = 90; level = 1;
+        zones = []; particles = []; timeLeft = 90; level = 1; energy = 100;
         spawnRate = 1800 / difficultyMultiplier; 
         warningTime = 180 / difficultyMultiplier;
         document.getElementById('record-text').innerText = "🏆 RÉCORD: NIVEL " + (localStorage.getItem('billarHigh') || 1);
@@ -157,11 +181,12 @@
 
     function togglePause() {
         if(!isStarted || gameOver) return;
-        isPaused = !isPaused;
-        document.getElementById('pause-menu').classList.toggle('hidden', !isPaused);
-    }
-
-    function startLoops() {
+    isPaused = !isPaused;
+    const menu = document.getElementById('pause-menu');
+    if(menu) menu.classList.toggle('hidden', !isPaused);
+    if(isPaused) updateShopUI(); // Para que se vean las monedas al pausar
+}
+function startLoops() {
         gameIntervals.forEach(clearInterval);
         gameIntervals = [
             setInterval(() => {
@@ -176,15 +201,35 @@
                 }
             }, 1000),
             setInterval(() => { if(!gameOver && !isPaused) spawnZone('red'); }, spawnRate),
-            setInterval(() => { if(!gameOver && !isPaused) { spawnZone('blue'); spawnZone('purple'); } }, 12000)
+            setInterval(() => { if(!gameOver && !isPaused) { spawnZone('blue'); spawnZone('purple'); } }, 12000),
+            setInterval(() => {
+                if(!gameOver && !isPaused && Math.random() < 0.75) {
+                    spawnZone('coin');
+                }
+            }, 25000)
         ];
     }
-
     function spawnZone(type) {
-        let r = (type === 'red') ? 60 : 45;
-        zones.push({x: Math.random()*800+50, y: Math.random()*450+50, r: r, type: type, a: 0, active: (type !== 'red')});
+    // 1. Definimos el radio (tamaño) según el tipo de objeto
+    let r;
+    if (type === 'red') {
+        r = 60; // Área de explosión grande
+    } else if (type === 'coin') {
+        r = 12; // Moneda pequeña
+    } else {
+        r = 45; // Azul (inmune) y Morada (lodo)
     }
 
+    // 2. Creamos el objeto con sus propiedades base
+    zones.push({
+        x: Math.random() * 800 + 50, 
+        y: Math.random() * 450 + 50, 
+        r: r, 
+        type: type, 
+        a: 0, 
+        active: (type !== 'red') // Las rojas nacen inactivas (amarillas), el resto activas
+    });
+}
     function endGame(reason) {
         gameOver = true;
         if (navigator.vibrate) navigator.vibrate([200, 50, 200]);
@@ -213,7 +258,27 @@
         if(!isStarted || gameOver || isPaused) return;
         ball.x+=ball.vx; ball.y+=ball.vy;
         ball.vx*=ball.f; ball.vy*=ball.f;
-        if(Math.hypot(ball.vx, ball.vy) < 0.5) { ball.vx=0; ball.vy=0; }
+    let speed = Math.hypot(ball.vx, ball.vy);
+    if (speed < 0.5) {
+        energy -= energyDrain; 
+    } else {
+        energy = Math.min(100, energy + 0.4); 
+    }
+    const eBar = document.getElementById('energy-bar');
+    if(eBar) {
+        eBar.style.width = (energy > 0 ? energy : 0) + "%";
+        eBar.style.background = energy < 30 ? "#f44336" : "#ffeb3b";
+    }
+const warningText = document.getElementById('camping-warning');
+if (warningText) {
+    warningText.style.opacity = energy < 50 ? "1" : "0";
+}
+if (energy <= 0 && isStarted && !gameOver) {
+    energy = 0; 
+    endGame("INACTIVIDAD (ANTI-CAMPING)");
+return;
+}
+       if(Math.hypot(ball.vx, ball.vy) < 0.5) { ball.vx=0; ball.vy=0; }
 
         if(ball.x<ball.r || ball.x>900-ball.r) { ball.vx*=-0.8; ball.x=ball.x<ball.r?ball.r:900-ball.r; playSound(150,'sine',0.05); if(navigator.vibrate) navigator.vibrate(20); }
         if(ball.y<ball.r || ball.y>550-ball.r) { ball.vy*=-0.8; ball.y=ball.y<ball.r?ball.r:550-ball.r; playSound(150,'sine',0.05); if(navigator.vibrate) navigator.vibrate(20); }
@@ -222,6 +287,13 @@
             z.a++;
             if(z.type === 'red' && z.a > warningTime) z.active = true;
             let dist = Math.hypot(ball.x-z.x, ball.y-z.y);
+if(z.type === 'coin' && dist < ball.r + z.r) {
+        coins += 1;
+        localStorage.setItem('billarCoins', coins);
+        playSound(800, 'triangle', 0.2);
+        zones.splice(i, 1);
+        return;
+    }
             
             if(dist < ball.r+z.r) {
                 if(z.type === 'red' && z.active && !ball.immune) endGame("EXPLOSIÓN");
@@ -243,28 +315,62 @@
         particles.forEach((p,i) => { p.update(); if(p.l<=0) particles.splice(i,1); });
     }
 
-    function draw() {
+function draw() {
         ctx.clearRect(0,0,900,550);
         if(!isStarted) return;
+
+        // DIBUJO DE ZONAS Y MONEDAS
         zones.forEach(z => {
-            ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI*2);
+            ctx.beginPath(); 
+            ctx.arc(z.x, z.y, z.r, 0, Math.PI*2);
+
             if(z.type === 'red') {
                 ctx.fillStyle = z.active ? "rgba(255,0,0,0.3)" : "rgba(255,255,0,0.15)";
                 ctx.strokeStyle = z.active ? "red" : "yellow";
             } else if(z.type === 'blue') {
-                ctx.fillStyle = "rgba(0,251,255,0.2)"; ctx.strokeStyle = "#00fbff";
-            } else { ctx.fillStyle = "rgba(180,0,255,0.2)"; ctx.strokeStyle = "#b400ff"; }
-            ctx.lineWidth=3; ctx.fill(); ctx.stroke();
+                ctx.fillStyle = "rgba(0,251,255,0.2)"; 
+                ctx.strokeStyle = "#00fbff";
+            } else if(z.type === 'purple') {
+                ctx.fillStyle = "rgba(180,0,255,0.2)"; 
+                ctx.strokeStyle = "#b400ff";
+            } else if(z.type === 'coin') {
+                // Estilo especial para la moneda
+                ctx.fillStyle = "#ffeb3b";
+                ctx.strokeStyle = "#ffffff";
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = "yellow";
+            }
+
+            ctx.lineWidth=3; 
+            ctx.fill(); 
+            ctx.stroke();
+            ctx.shadowBlur = 0; // Resetear brillo
         });
+
         particles.forEach(p => p.draw());
 
+        // DIBUJO DE LA BOLA (CON SKINS)
         ctx.save();
-        if(ball.immune) { ctx.shadowBlur = 15; ctx.shadowColor = "#00fbff"; }
-        ctx.fillStyle = ball.immune ? "#00fbff" : "white";
-        ctx.beginPath(); ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2); ctx.fill();
-        ctx.strokeStyle="black"; ctx.lineWidth=2; ctx.stroke();
+        // Buscamos el color de la skin seleccionada en la tienda
+        let currentSkinData = skinStore.find(s => s.id === activeSkin);
+        
+        if(ball.immune) { 
+            ctx.shadowBlur = 15; 
+            ctx.shadowColor = "#00fbff"; 
+        }
+
+        // Si es inmune azul, si no, el color de la skin (o blanco por defecto)
+        ctx.fillStyle = ball.immune ? "#00fbff" : (currentSkinData ? currentSkinData.color : "white");
+        
+        ctx.beginPath(); 
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); 
+        ctx.fill();
+        ctx.strokeStyle="black"; 
+        ctx.lineWidth=2; 
+        ctx.stroke();
         ctx.restore();
         
+        // DIBUJO DEL TACO Y GUÍA
         if(isDrawing) {
             let dx=ball.x-curPos.x, dy=ball.y-curPos.y, ang=Math.atan2(dy,dx), dist=Math.hypot(dx,dy);
             ctx.save(); ctx.translate(ball.x,ball.y); ctx.rotate(ang);
@@ -280,7 +386,35 @@
 
     function run() { update(); draw(); requestAnimationFrame(run); }
     run();
+function updateShopUI() {
+    document.getElementById('coin-count-ui').innerText = coins;
+    const list = document.getElementById('skin-list');
+    list.innerHTML = '';
+
+    skinStore.forEach(skin => {
+        const isOwned = ownedSkins.includes(skin.id);
+        const btn = document.createElement('div');
+        btn.style = `width: 50px; height: 50px; background: ${skin.color}; border-radius: 50%; border: ${activeSkin === skin.id ? '4px solid white' : '2px solid #000'}; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; color: black; font-weight: bold;`;
+        
+        btn.innerText = isOwned ? (activeSkin === skin.id ? 'USANDO' : 'USAR') : '2 💰';
+        btn.onclick = () => {
+            if(isOwned) {
+                activeSkin = skin.id;
+                localStorage.setItem('billarSkin', skin.id);
+            } else if(coins >= 2) {
+                coins -= 2;
+                ownedSkins.push(skin.id);
+                activeSkin = skin.id;
+                localStorage.setItem('billarCoins', coins);
+                localStorage.setItem('billarOwned', JSON.stringify(ownedSkins));
+                localStorage.setItem('billarSkin', skin.id);
+                playSound(500, 'triangle', 0.3);
+            }
+            updateShopUI();
+        };
+        list.appendChild(btn);
+    });
+}
 </script>
 </body>
 </html>
-
