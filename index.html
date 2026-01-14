@@ -56,24 +56,43 @@
 </head>
 <body>
 
-    <div id="start-menu" class="overlay">
-        <div class="menu-card">
-            <h1 style="color: #4caf50; margin: 0;">BILLAR SURVIVAL</h1>
-            <p id="record-text" style="color: #ffeb3b;">🏆 RÉCORD: NIVEL 1</p>
-            
-            <div class="guide-grid">
-                <div class="dot" style="background: red;"></div> <div><b>ROJA:</b> Explosión letal.</div>
-                <div class="dot" style="background: #00fbff;"></div> <div><b>AZUL:</b> Escudo Inmune (5s).</div>
-                <div class="dot" style="background: #b400ff;"></div> <div><b>MORADA:</b> Ralentiza la bola.</div>
-            </div>
-
-            <div style="background: #111; padding: 10px; border-radius: 10px;">
-                <span id="diff-label" style="font-weight: bold; color: #4deeea;">DIFICULTAD: BASE</span>
-                <input type="range" id="diff-slider" min="0" max="5" value="0" oninput="updateDiff(this.value)">
-            </div>
-            <button onclick="startGame()">JUGAR AHORA</button>
+<div id="control-selection-menu" class="overlay">
+    <div class="menu-card">
+        <h1 style="color: #4caf50; margin: 0;">CONFIGURACIÓN</h1>
+        <p>Selecciona tus controles antes de jugar:</p>
+        
+        <div class="option" onclick="selectControl(1)" style="background: #111; padding: 15px; margin: 10px; border-radius: 10px; border: 2px solid #4caf50; cursor: pointer;">
+            <strong>CONTROL 1: DIRECTO</strong>
+            <p><small>La bola va hacia donde apuntas con el dedo o mouse.</small></p>
+        </div>
+        
+        <div class="option" onclick="selectControl(2)" style="background: #111; padding: 15px; margin: 10px; border-radius: 10px; border: 2px solid #888; cursor: pointer;">
+            <strong>CONTROL 2: HONDA</strong>
+            <p><small>Tira hacia atrás de la bola para disparar.</small></p>
         </div>
     </div>
+</div>
+
+<div id="start-menu" class="overlay hidden">
+    <div class="menu-card">
+        <h1 style="color: #4caf50; margin: 0;">BILLAR SURVIVAL</h1>
+        <p id="record-text" style="color: #ffeb3b;">🏆 RÉCORD: NIVEL 1</p>
+        
+        <div class="guide-grid">
+            <div class="dot" style="background: red;"></div> <div><b>ROJA:</b> Explosión letal.</div>
+            <div class="dot" style="background: #00fbff;"></div> <div><b>AZUL:</b> Escudo Inmune (5s).</div>
+            <div class="dot" style="background: #b400ff;"></div> <div><b>MORADA:</b> Ralentiza la bola.</div>
+        </div>
+
+        <div style="background: #111; padding: 10px; border-radius: 10px;">
+            <span id="diff-label" style="font-weight: bold; color: #4deeea;">DIFICULTAD: BASE</span>
+            <input type="range" id="diff-slider" min="0" max="5" value="0" oninput="updateDiff(this.value)">
+        </div>
+        <button onclick="startGame()">¡JUGAR AHORA!</button>
+        <p><small onclick="location.reload()" style="cursor:pointer; color: #888;">← Cambiar Control</small></p>
+    </div>
+</div>
+
 <div id="pause-menu" class="overlay hidden">
     <div class="menu-card">
     <h2 style="color: #4deeea; margin: 5px;">TIENDA DE SKINS</h2>
@@ -83,14 +102,20 @@
     <button onclick="location.reload()" style="background: #f44336; font-size: 14px;">SALIR</button>
 </div>
 </div>
-    <div id="game-over" class="overlay hidden">
+    
+<div id="game-over" class="overlay hidden">
         <div class="menu-card">
             <h1 style="color: #ff5252;">¡BOOM!</h1>
             <p id="death-reason" style="color: #aaa;"></p>
             <div style="font-size: 28px; margin: 10px 0;">NIVEL: <span id="final-lvl">1</span></div>
-            <button onclick="location.reload()">REINTENTAR</button>
-        </div>
+           <button onclick="resetGame()">REINTENTAR</button>
+        
+        <br>
+        <button onclick="location.reload()" style="background: #444; font-size: 12px; margin-top: 10px; box-shadow: 2px 2px 0px #222;">
+            CAMBIAR MODO DE CONTROL
+        </button>
     </div>
+</div>
 
     <div class="stats">
         <div>LVL: <span id="lvl-val">1</span></div>
@@ -109,6 +134,16 @@
     </div>
 
 <script>
+let controlType = 1; // 1: Directo, 2: Honda
+
+function selectControl(type) {
+    controlType = type; // Guarda si eligió Directo o Honda
+localStorage.setItem('billarControl', type); // Guarda el control
+    document.getElementById('control-selection-menu').classList.add('hidden');
+    document.getElementById('start-menu').classList.remove('hidden');
+    const high = localStorage.getItem('billarHigh') || 1;
+    document.getElementById('record-text').innerText = "🏆 RÉCORD: NIVEL " + high;
+}
 let coins = parseInt(localStorage.getItem('billarCoins')) || 0;
 let activeSkin = localStorage.getItem('billarSkin') || 'white';
 let ownedSkins = JSON.parse(localStorage.getItem('billarOwned')) || ['white'];
@@ -139,6 +174,8 @@ let energyDrain = 0.15; // Velocidad de descarga
     ];
 
     function updateDiff(v) {
+currentDiffIndex = parseInt(v);
+    localStorage.setItem('billarDiff', v);
         document.getElementById('diff-label').innerText = "DIFICULTAD: " + diffs[v].name;
         document.getElementById('diff-label').style.color = diffs[v].col;
     }
@@ -175,7 +212,9 @@ let energyDrain = 0.15; // Velocidad de descarga
 
     function startGame() {
         init(); isStarted = true; document.getElementById('start-menu').classList.add('hidden');
-        if(audioCtx.state === 'suspended') audioCtx.resume();
+        document.getElementById('control-selection-menu').classList.add('hidden');
+    document.getElementById('game-over').classList.add('hidden');
+if(audioCtx.state === 'suspended') audioCtx.resume();
         startLoops();
     }
 
@@ -248,7 +287,28 @@ function startLoops() {
 
     const hStart = (e) => { if(ball.vx===0 && isStarted && !isPaused) { isDrawing=true; curPos=getPos(e); } };
     const hMove = (e) => { curPos=getPos(e); if(isDrawing) e.preventDefault(); };
-    const hEnd = () => { if(isDrawing) { playSound(300,'triangle',0.1); ball.vx=(ball.x-curPos.x)*0.14; ball.vy=(ball.y-curPos.y)*0.14; isDrawing=false; } };
+    const hEnd = () => { 
+    if(isDrawing) { 
+        playSound(300, 'triangle', 0.1); 
+        
+        // Calculamos la diferencia de posición
+        let dx = ball.x - curPos.x;
+        let dy = ball.y - curPos.y;
+        let power = 0.14;
+
+        if (controlType === 1) {
+            // MODO DIRECTO: Invierte la dirección para que vaya HACIA el puntero
+            ball.vx = -dx * power; 
+            ball.vy = -dy * power;
+        } else {
+            // MODO HONDA: (Tu código original) sale disparado al lado OPUESTO
+            ball.vx = dx * power; 
+            ball.vy = dy * power;
+        }
+        
+        isDrawing = false; 
+    } 
+};
 
     window.addEventListener('keydown', (e) => { if(e.key.toLowerCase()==='p' || e.key==='Escape') togglePause(); });
     canvas.addEventListener('mousedown', hStart); window.addEventListener('mousemove', hMove); window.addEventListener('mouseup', hEnd);
@@ -316,74 +376,96 @@ if(z.type === 'coin' && dist < ball.r + z.r) {
     }
 
 function draw() {
-        ctx.clearRect(0,0,900,550);
-        if(!isStarted) return;
+    ctx.clearRect(0,0,900,550);
+    if(!isStarted) return;
 
-        // DIBUJO DE ZONAS Y MONEDAS
-        zones.forEach(z => {
-            ctx.beginPath(); 
-            ctx.arc(z.x, z.y, z.r, 0, Math.PI*2);
-
-            if(z.type === 'red') {
-                ctx.fillStyle = z.active ? "rgba(255,0,0,0.3)" : "rgba(255,255,0,0.15)";
-                ctx.strokeStyle = z.active ? "red" : "yellow";
-            } else if(z.type === 'blue') {
-                ctx.fillStyle = "rgba(0,251,255,0.2)"; 
-                ctx.strokeStyle = "#00fbff";
-            } else if(z.type === 'purple') {
-                ctx.fillStyle = "rgba(180,0,255,0.2)"; 
-                ctx.strokeStyle = "#b400ff";
-            } else if(z.type === 'coin') {
-                // Estilo especial para la moneda
-                ctx.fillStyle = "#ffeb3b";
-                ctx.strokeStyle = "#ffffff";
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = "yellow";
-            }
-
-            ctx.lineWidth=3; 
-            ctx.fill(); 
-            ctx.stroke();
-            ctx.shadowBlur = 0; // Resetear brillo
-        });
-
-        particles.forEach(p => p.draw());
-
-        // DIBUJO DE LA BOLA (CON SKINS)
-        ctx.save();
-        // Buscamos el color de la skin seleccionada en la tienda
-        let currentSkinData = skinStore.find(s => s.id === activeSkin);
-        
-        if(ball.immune) { 
-            ctx.shadowBlur = 15; 
-            ctx.shadowColor = "#00fbff"; 
-        }
-
-        // Si es inmune azul, si no, el color de la skin (o blanco por defecto)
-        ctx.fillStyle = ball.immune ? "#00fbff" : (currentSkinData ? currentSkinData.color : "white");
-        
+    // DIBUJO DE ZONAS Y MONEDAS
+    zones.forEach(z => {
         ctx.beginPath(); 
-        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); 
-        ctx.fill();
-        ctx.strokeStyle="black"; 
-        ctx.lineWidth=2; 
-        ctx.stroke();
-        ctx.restore();
-        
-        // DIBUJO DEL TACO Y GUÍA
-        if(isDrawing) {
-            let dx=ball.x-curPos.x, dy=ball.y-curPos.y, ang=Math.atan2(dy,dx), dist=Math.hypot(dx,dy);
-            ctx.save(); ctx.translate(ball.x,ball.y); ctx.rotate(ang);
-            ctx.fillStyle="#5d4037"; ctx.fillRect(-dist-150, -4, 150, 8);
-            ctx.fillStyle="#d7ccc8"; ctx.fillRect(-dist-10, -4, 10, 8);
-            ctx.restore();
-            ctx.setLineDash([8,8]); ctx.strokeStyle="rgba(255,255,255,0.5)";
-            ctx.beginPath(); ctx.moveTo(ball.x,ball.y);
-            ctx.lineTo(ball.x+Math.cos(ang)*600, ball.y+Math.sin(ang)*600); ctx.stroke();
-            ctx.setLineDash([]);
+        ctx.arc(z.x, z.y, z.r, 0, Math.PI*2);
+
+        if(z.type === 'red') {
+            ctx.fillStyle = z.active ? "rgba(255,0,0,0.3)" : "rgba(255,255,0,0.15)";
+            ctx.strokeStyle = z.active ? "red" : "yellow";
+        } else if(z.type === 'blue') {
+            ctx.fillStyle = "rgba(0,251,255,0.2)"; 
+            ctx.strokeStyle = "#00fbff";
+        } else if(z.type === 'purple') {
+            ctx.fillStyle = "rgba(180,0,255,0.2)"; 
+            ctx.strokeStyle = "#b400ff";
+        } else if(z.type === 'coin') {
+            ctx.fillStyle = "#ffeb3b";
+            ctx.strokeStyle = "#ffffff";
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "yellow";
         }
+
+        ctx.lineWidth=3; 
+        ctx.fill(); 
+        ctx.stroke();
+        ctx.shadowBlur = 0; 
+    });
+
+    particles.forEach(p => p.draw());
+
+    // DIBUJO DE LA BOLA (CON SKINS)
+    ctx.save();
+    let currentSkinData = skinStore.find(s => s.id === activeSkin);
+    
+    if(ball.immune) { 
+        ctx.shadowBlur = 15; 
+        ctx.shadowColor = "#00fbff"; 
     }
 
+    ctx.fillStyle = ball.immune ? "#00fbff" : (currentSkinData ? currentSkinData.color : "white");
+    
+    ctx.beginPath(); 
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); 
+    ctx.fill();
+    ctx.strokeStyle="black"; 
+    ctx.lineWidth=2; 
+    ctx.stroke();
+    ctx.restore();
+    
+    // DIBUJO DEL TACO Y GUÍA CORREGIDA
+    if(isDrawing) {
+        let dx = ball.x - curPos.x;
+        let dy = ball.y - curPos.y;
+        let ang = Math.atan2(dy, dx);
+        let dist = Math.hypot(dx, dy);
+
+        // 1. Dibujo del Taco
+        ctx.save(); 
+        ctx.translate(ball.x, ball.y); 
+        if (controlType === 1) {
+            ctx.rotate(ang + Math.PI); // Taco apunta hacia el dedo
+        } else {
+            ctx.rotate(ang); // Taco en lado opuesto (honda)
+        }
+        ctx.fillStyle="#5d4037"; ctx.fillRect(-dist-150, -4, 150, 8);
+        ctx.fillStyle="#d7ccc8"; ctx.fillRect(-dist-10, -4, 10, 8);
+        ctx.restore();
+
+        // 2. Dibujo de la Guía (Puntitos)
+        ctx.setLineDash([8,8]); 
+        ctx.strokeStyle="rgba(255,255,255,0.5)";
+        ctx.beginPath(); 
+        ctx.moveTo(ball.x, ball.y);
+
+        if (controlType === 1) {
+            // Guía Directa: va hacia el dedo
+            ctx.lineTo(curPos.x, curPos.y); 
+        } else {
+            // Guía Honda: va hacia el lado opuesto del dedo
+            let targetX = ball.x + dx * 5; 
+            let targetY = ball.y + dy * 5;
+            ctx.lineTo(targetX, targetY);
+        }
+        
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
     function run() { update(); draw(); requestAnimationFrame(run); }
     run();
 function updateShopUI() {
@@ -414,6 +496,22 @@ function updateShopUI() {
         };
         list.appendChild(btn);
     });
+}
+function resetGame() {
+    // 1. Limpiamos el estado de derrota
+    gameOver = false;
+    isStarted = false;
+    
+    // 2. Ocultamos la pantalla de muerte
+    document.getElementById('game-over').classList.add('hidden');
+    
+    // 3. Mostramos el menú principal directamente (saltando la selección de control)
+    document.getElementById('start-menu').classList.remove('hidden');
+    
+    // 4. Aplicamos la dificultad que ya estaba guardada en el slider
+    const savedDiff = localStorage.getItem('billarDiff') || 0;
+    document.getElementById('diff-slider').value = savedDiff;
+    updateDiff(savedDiff); // Esto actualiza el texto de "DIFICULTAD: BASE/DURÍSIMO..."
 }
 </script>
 </body>
