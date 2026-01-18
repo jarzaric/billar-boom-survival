@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <link rel="manifest" href="manifest.json">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Billar Survival - Mobile Pro</title>
@@ -22,7 +23,7 @@
 
         /* Botón de Pausa Táctil */
         .mobile-pause-btn {
-            position: absolute; top: 20px; right: 20px; width: 45px; height: 45px;
+            position: absolute; top: 10px; right: 500px; width: 45px; height: 45px;
             background: rgba(0, 0, 0, 0.6); color: white; border: 2px solid #4caf50;
             border-radius: 50%; display: flex; align-items: center; justify-content: center;
             font-size: 20px; font-weight: bold; cursor: pointer; z-index: 10;
@@ -52,6 +53,15 @@
             width: 100%; height: 100%; background: #ffeb3b; 
             transition: width 0.1s linear; 
         }
+        #skin-list {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap; 
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 10px;
+}
     </style>
 </head>
 <body>
@@ -75,13 +85,14 @@
 
 <div id="start-menu" class="overlay hidden">
     <div class="menu-card">
-        <h1 style="color: #4caf50; margin: 0;">BILLAR SURVIVAL</h1>
+        <h1 style="color: #4caf50; margin: 0;">BILLAR BOOM SURVIVAL</h1>
         <p id="record-text" style="color: #ffeb3b;">🏆 RÉCORD: NIVEL 1</p>
-        
+         <p id="guide-text" style="color: #999999;">INSTRUCCIONES:</p>
         <div class="guide-grid">
+            <div class="dot" style="background: yellow;"></div> <div><b>AMARILLA:</b> Zona de advertencia.</div>
             <div class="dot" style="background: red;"></div> <div><b>ROJA:</b> Explosión letal.</div>
-            <div class="dot" style="background: #00fbff;"></div> <div><b>AZUL:</b> Escudo Inmune (5s).</div>
-            <div class="dot" style="background: #b400ff;"></div> <div><b>MORADA:</b> Ralentiza la bola.</div>
+            <div class="dot" style="background: #00fbff;"></div> <div><b>AZUL:</b> Escudo de Inmunidad (10s).</div>
+            <div class="dot" style="background: #b400ff;"></div> <div><b>MORADA:</b> Frena la bola.</div>
         </div>
 
         <div style="background: #111; padding: 10px; border-radius: 10px;">
@@ -121,6 +132,7 @@
         <div>LVL: <span id="lvl-val">1</span></div>
         <div>⏱️: <span id="timer">01:30</span></div>
         <div id="status-effect" style="color:#00fbff; font-weight: bold;"></div>
+        <div class="mobile-pause-btn" onclick="togglePause()">||</div>
     </div>
 <div class="energy-container">
     <div id="energy-bar"></div>
@@ -129,13 +141,13 @@
         ⚠️ ¡MUÉVETE O EXPLOTARÁS! ⚠️
     </div>
     <div class="table-frame">
-        <div class="mobile-pause-btn" onclick="togglePause()">||</div>
         <canvas id="gameCanvas" width="900" height="550"></canvas>
     </div>
 
 <script>
 let controlType = 1; // 1: Directo, 2: Honda
-
+let currentDiffIndex = parseInt(localStorage.getItem('billarDiff')) || 0;
+let unlockedDiffs = JSON.parse(localStorage.getItem('billarUnlockedDiffs')) || ['base'];
 function selectControl(type) {
     controlType = type; // Guarda si eligió Directo o Honda
 localStorage.setItem('billarControl', type); // Guarda el control
@@ -150,65 +162,109 @@ let ownedSkins = JSON.parse(localStorage.getItem('billarOwned')) || ['white'];
 
 // Definición de las skins disponibles
 const skinStore = [
-    { id: 'white', color: '#ffffff', name: 'Clásica' },
+    { id: 'white', color: '#ffffff', name: 'Blanco' },
     { id: 'gold', color: '#ffd700', name: 'Oro' },
     { id: 'neon', color: '#39ff14', name: 'Neón' },
-    { id: 'fire', color: '#ff4500', name: 'Fuego' }
+    { id: 'fire', color: '#ff4500', name: 'Fuego' },
+    { id: 'ice', color: '#00fbff', name: 'Hielo' },
+    { id: 'purple', color: '#b400ff', name: 'Gema' },
+    { id: 'pink', color: '#ff00ff', name: 'Chicle' },
+    { id: 'blood', color: '#8b0000', name: 'Sangre' },
+    { id: 'ocean', color: '#0000ff', name: 'Océano' },
+    { id: 'emerald', color: '#50c878', name: 'Esmeralda' },
+    { id: 'orange', color: '#ff8c00', name: 'Naranja' },
+    { id: 'silver', color: '#c0c0c0', name: 'Plata' },
+    { id: 'obsidian', color: '#333333', name: 'Obsidiana' },
+    { id: 'sunset', color: '#ff5e62', name: 'Atardecer' },
+    { id: 'toxic', color: '#adff2f', name: 'Tóxico' },
+    { id: 'royal', color: '#4169e1', name: 'Real' }
 ];
+let difficultyMultiplier = 1;
+let spawnRate = 1800;
+let warningTime = 300;
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-    let ball, zones, particles, timeLeft, level, difficultyMultiplier, spawnRate, warningTime;
+    let ball, zones, particles, timeLeft, level;
     let isStarted = false, isPaused = false, gameOver = false, isDrawing = false, curPos = {x:0, y:0};
     let gameIntervals = [];
 let energy = 100; 
 let energyDrain = 0.15; // Velocidad de descarga
     const diffs = [
-        {name: "BASE", mult: 1.0, col: "#4deeea"},
-        {name: "DIFICIL", mult: 1.4, col: "#4caf50"},
-        {name: "TREMENDO", mult: 1.8, col: "#ffeb3b"},
-        {name: "DURÍSIMO", mult: 2.2, col: "#ff9800"},
-        {name: "EXTREMO", mult: 2.6, col: "#f44336"},
-        {name: "LOCURA", mult: 3.2, col: "#9c27b0"}
-    ];
+    { id: 'base', name: "BASE", mult: 1.0, freq: 1500, col: "#4deeea", price: 0 },
+    { id: 'dificil', name: "DIFICIL", mult: 1.4, freq: 1200, col: "#4caf50", price: 5 },
+    { id: 'tremendo', name: "TREMENDO", mult: 1.8, freq: 1000, col: "#ffeb3b", price: 10 },
+    { id: 'durisimo', name: "DURÍSIMO", mult: 2.2, freq: 800, col: "#ff9800", price: 15 },
+    { id: 'extremo', name: "EXTREMO", mult: 2.6, freq: 650, col: "#f44336", price: 20 },
+    { id: 'locura', name: "LOCURA", mult: 3.2, freq: 500, col: "#9c27b0", price: 25 }
+];
 
-    function updateDiff(v) {
-currentDiffIndex = parseInt(v);
-    localStorage.setItem('billarDiff', v);
-        document.getElementById('diff-label').innerText = "DIFICULTAD: " + diffs[v].name;
-        document.getElementById('diff-label').style.color = diffs[v].col;
+function updateDiff(v) {
+    const index = parseInt(v);
+    const targetDiff = diffs[index];
+    
+    // 1. Si es el nivel BASE, permitir siempre
+    if (index === 0) {
+        applyDiff(index);
+        return;
     }
 
-    function playSound(f, t, d, v=0.1) {
-        if(!isStarted || isPaused || audioCtx.state === 'suspended') return;
-        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-        o.type = t; o.frequency.setValueAtTime(f, audioCtx.currentTime);
-        g.gain.setValueAtTime(v, audioCtx.currentTime);
-        g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + d);
-        o.connect(g); g.connect(audioCtx.destination);
-        o.start(); o.stop(audioCtx.currentTime + d);
+    // 2. REGLA DE ESCALADA: Verificar si el nivel anterior está desbloqueado
+    const previousDiff = diffs[index - 1];
+    if (!unlockedDiffs.includes(previousDiff.id)) {
+        alert(`¡Paso a paso! Primero debes desbloquear el nivel: ${previousDiff.name}`);
+        document.getElementById('diff-slider').value = currentDiffIndex;
+        return;
     }
 
-    class Pixel {
-        constructor(x,y,c) {
-            this.x=x; this.y=y; this.c=c;
-            this.vx=(Math.random()-0.5)*4; this.vy=(Math.random()-0.5)*4;
-            this.l=1.0; this.s=Math.random()*3+2;
+    // 3. Si ya es dueño del nivel actual, permitir el paso
+    if (unlockedDiffs.includes(targetDiff.id)) {
+        applyDiff(index);
+        return;
+    }
+
+    const record = parseInt(localStorage.getItem('billarHigh')) || 1;
+    const levelRequired = 5; 
+    
+    // 4. OPCIÓN A: Desbloqueo GRATIS por Récord
+    if (record >= levelRequired) {
+        unlockedDiffs.push(targetDiff.id);
+        localStorage.setItem('billarUnlockedDiffs', JSON.stringify(unlockedDiffs));
+        alert(`¡Nivel ${targetDiff.name} desbloqueado por tu récord! 🏆`);
+        applyDiff(index);
+    } 
+    // 5. OPCIÓN B: Compra con Monedas
+    else if (coins >= targetDiff.price) {
+        if (confirm(`¿Desbloquear ${targetDiff.name} por ${targetDiff.price} monedas?\n\n(O llega al Nivel ${levelRequired} para que sea GRATIS)`)) {
+            coins -= targetDiff.price;
+            unlockedDiffs.push(targetDiff.id);
+            localStorage.setItem('billarCoins', coins);
+            localStorage.setItem('billarUnlockedDiffs', JSON.stringify(unlockedDiffs));
+            applyDiff(index);
+            if(typeof updateShopUI === 'function') updateShopUI();
+        } else {
+            document.getElementById('diff-slider').value = currentDiffIndex;
         }
-        update() { this.x+=this.vx; this.y+=this.vy; this.l-=0.02; }
-        draw() { ctx.globalAlpha=this.l; ctx.fillStyle=this.c; ctx.fillRect(this.x,this.y,this.s,this.s); ctx.globalAlpha=1; }
+    } 
+    // 6. BLOQUEADO
+    else {
+        alert(`BLOQUEADO: Necesitas récord de Nivel ${levelRequired} o pagar ${targetDiff.price} monedas.`);
+        document.getElementById('diff-slider').value = currentDiffIndex;
     }
-
+}
     function init() {
-        const d = diffs[document.getElementById('diff-slider').value];
-        difficultyMultiplier = d.mult;
-        ball = { x: 450, y: 275, vx: 0, vy: 0, r: 15, f: 0.985, immune: false };
-        zones = []; particles = []; timeLeft = 90; level = 1; energy = 100;
-        spawnRate = 1800 / difficultyMultiplier; 
-        warningTime = 180 / difficultyMultiplier;
-        document.getElementById('record-text').innerText = "🏆 RÉCORD: NIVEL " + (localStorage.getItem('billarHigh') || 1);
-    }
+    // Usamos el índice actual que el slider y applyDiff controlan
+    const d = diffs[currentDiffIndex];
+    
+    difficultyMultiplier = d.mult;
+    spawnRate = d.freq; 
+    warningTime = d.freq / 5;
+    ball = { x: 450, y: 275, vx: 0, vy: 0, r: 15, f: 0.985, immune: false };
+    zones = []; particles = []; timeLeft = 90; level = 1; energy = 100;
+    document.getElementById('lvl-val').innerText = level;
+        
+}
 
     function startGame() {
         init(); isStarted = true; document.getElementById('start-menu').classList.add('hidden');
@@ -240,7 +296,7 @@ function startLoops() {
                 }
             }, 1000),
             setInterval(() => { if(!gameOver && !isPaused) spawnZone('red'); }, spawnRate),
-            setInterval(() => { if(!gameOver && !isPaused) { spawnZone('blue'); spawnZone('purple'); } }, 12000),
+            setInterval(() => { if(!gameOver && !isPaused) { spawnZone('blue'); spawnZone('purple'); } }, 16000),
             setInterval(() => {
                 if(!gameOver && !isPaused && Math.random() < 0.75) {
                     spawnZone('coin');
@@ -249,6 +305,11 @@ function startLoops() {
         ];
     }
     function spawnZone(type) {
+     const zoneLimit = { red: 8, blue: 1, purple: 1, coin: 1 };
+    const currentCount = zones.filter(z => z.type === type).length;
+    
+    if (currentCount >= zoneLimit[type]) return; // Don't spawn if limit reached
+   
     // 1. Definimos el radio (tamaño) según el tipo de objeto
     let r;
     if (type === 'red') {
@@ -313,67 +374,100 @@ function startLoops() {
     window.addEventListener('keydown', (e) => { if(e.key.toLowerCase()==='p' || e.key==='Escape') togglePause(); });
     canvas.addEventListener('mousedown', hStart); window.addEventListener('mousemove', hMove); window.addEventListener('mouseup', hEnd);
     canvas.addEventListener('touchstart', hStart, {passive:false}); canvas.addEventListener('touchmove', hMove, {passive:false}); canvas.addEventListener('touchend', hEnd);
+class Pixel {
+    constructor(x, y, col) {
+        this.x = x; this.y = y; this.col = col;
+        this.l = 1.0; this.v = Math.random() * 2 + 1;
+    }
+    update() { this.y -= this.v; this.l -= 0.02; }
+    draw() {
+        ctx.globalAlpha = this.l;
+        ctx.fillStyle = this.col;
+        ctx.fillRect(this.x, this.y, 3, 3);
+        ctx.globalAlpha = 1.0;
+    }
+}
+function update() {
+    if(!isStarted || gameOver || isPaused) return;
 
-    function update() {
-        if(!isStarted || gameOver || isPaused) return;
-        ball.x+=ball.vx; ball.y+=ball.vy;
-        ball.vx*=ball.f; ball.vy*=ball.f;
+    // 1. Físicas de la bola
+    ball.x += ball.vx; 
+    ball.y += ball.vy;
+    ball.vx *= ball.f; 
+    ball.vy *= ball.f;
+
     let speed = Math.hypot(ball.vx, ball.vy);
     if (speed < 0.5) {
         energy -= energyDrain; 
     } else {
         energy = Math.min(100, energy + 0.4); 
     }
+
+    // UI de Energía
     const eBar = document.getElementById('energy-bar');
     if(eBar) {
         eBar.style.width = (energy > 0 ? energy : 0) + "%";
         eBar.style.background = energy < 30 ? "#f44336" : "#ffeb3b";
     }
-const warningText = document.getElementById('camping-warning');
-if (warningText) {
-    warningText.style.opacity = energy < 50 ? "1" : "0";
-}
-if (energy <= 0 && isStarted && !gameOver) {
-    energy = 0; 
-    endGame("INACTIVIDAD (ANTI-CAMPING)");
-return;
-}
-       if(Math.hypot(ball.vx, ball.vy) < 0.5) { ball.vx=0; ball.vy=0; }
 
-        if(ball.x<ball.r || ball.x>900-ball.r) { ball.vx*=-0.8; ball.x=ball.x<ball.r?ball.r:900-ball.r; playSound(150,'sine',0.05); if(navigator.vibrate) navigator.vibrate(20); }
-        if(ball.y<ball.r || ball.y>550-ball.r) { ball.vy*=-0.8; ball.y=ball.y<ball.r?ball.r:550-ball.r; playSound(150,'sine',0.05); if(navigator.vibrate) navigator.vibrate(20); }
+    const warningText = document.getElementById('camping-warning');
+    if (warningText) warningText.style.opacity = energy < 50 ? "1" : "0";
 
-        zones.forEach((z,i) => {
-            z.a++;
-            if(z.type === 'red' && z.a > warningTime) z.active = true;
-            let dist = Math.hypot(ball.x-z.x, ball.y-z.y);
-if(z.type === 'coin' && dist < ball.r + z.r) {
-        coins += 1;
-        localStorage.setItem('billarCoins', coins);
-        playSound(800, 'triangle', 0.2);
-        zones.splice(i, 1);
+    if (energy <= 0 && isStarted && !gameOver) {
+        energy = 0; 
+        endGame("INACTIVIDAD (ANTI-CAMPING)");
         return;
     }
-            
-            if(dist < ball.r+z.r) {
-                if(z.type === 'red' && z.active && !ball.immune) endGame("EXPLOSIÓN");
-                if(z.type === 'blue') {
-                    ball.immune = true;
-                    document.getElementById('status-effect').innerText = "🛡️ INMUNE";
-                    playSound(600, 'sine', 0.2);
-                    setTimeout(() => { ball.immune = false; document.getElementById('status-effect').innerText = ""; }, 5000);
-                    zones.splice(i, 1);
-                }
-                if(z.type === 'purple') { ball.vx *= 0.85; ball.vy *= 0.85; }
+
+    if(Math.hypot(ball.vx, ball.vy) < 0.5) { ball.vx=0; ball.vy=0; }
+
+    // Rebotar en bordes
+    if(ball.x<ball.r || ball.x>900-ball.r) { ball.vx*=-0.8; ball.x=ball.x<ball.r?ball.r:900-ball.r; playSound(150,'sine',0.05); }
+    if(ball.y<ball.r || ball.y>550-ball.r) { ball.vy*=-0.8; ball.y=ball.y<ball.r?ball.r:550-ball.r; playSound(150,'sine',0.05); }
+
+    // 2. Bucle de Zonas (Corregido)
+    zones.forEach((z, i) => {
+        z.a++;
+        if(z.type === 'red' && z.a > warningTime) z.active = true;
+        let dist = Math.hypot(ball.x - z.x, ball.y - z.y);
+
+        if(z.type === 'coin' && dist < ball.r + z.r) {
+            coins += 1;
+            localStorage.setItem('billarCoins', coins);
+            playSound(800, 'triangle', 0.2);
+            zones.splice(i, 1);
+            return;
+        }
+        
+        if(dist < ball.r + z.r) {
+            if(z.type === 'red' && z.active && !ball.immune) endGame("EXPLOSIÓN");
+            if(z.type === 'blue') {
+                ball.immune = true;
+                document.getElementById('status-effect').innerText = "🛡️ INMUNE";
+                playSound(600, 'sine', 0.2);
+                setTimeout(() => { ball.immune = false; document.getElementById('status-effect').innerText = ""; }, 10000);
+                zones.splice(i, 1);
             }
-            if(Math.random()>0.8) {
-                let pCol = z.type==='red'?(z.active?"red":"yellow"): (z.type==='blue'?"#00fbff":"#b400ff");
-                particles.push(new Pixel(z.x+(Math.random()-0.5)*z.r, z.y+(Math.random()-0.5)*z.r, pCol));
-            }
-            if(z.a > warningTime*2.5) zones.splice(i,1);
-        });
-        particles.forEach((p,i) => { p.update(); if(p.l<=0) particles.splice(i,1); });
-    }
+            if(z.type === 'purple') { ball.vx *= 0.85; ball.vy *= 0.85; }
+        }
+
+        if(Math.random() > 0.8) {
+            let pCol = z.type==='red'?(z.active?"red":"yellow"): (z.type==='blue'?"#00fbff":"#b400ff");
+            particles.push(new Pixel(z.x+(Math.random()-0.5)*z.r, z.y+(Math.random()-0.5)*z.r, pCol));
+        }
+
+        let lifeTime = warningTime * 3;
+        if(z.a > lifeTime) { 
+            zones.splice(i, 1); 
+        }
+    }); // <-- ESTO CIERRA EL ZONES.FOREACH CORRECTAMENTE
+
+    // 3. Bucle de Partículas (Independiente)
+    particles.forEach((p, i) => { 
+        p.update(); 
+        if(p.l <= 0) particles.splice(i, 1); 
+    });
+} // <-- ESTO CIERRA LA FUNCIÓN UPDATE
 
 function draw() {
     ctx.clearRect(0,0,900,550);
@@ -473,45 +567,93 @@ function updateShopUI() {
     const list = document.getElementById('skin-list');
     list.innerHTML = '';
 
-    skinStore.forEach(skin => {
-        const isOwned = ownedSkins.includes(skin.id);
-        const btn = document.createElement('div');
-        btn.style = `width: 50px; height: 50px; background: ${skin.color}; border-radius: 50%; border: ${activeSkin === skin.id ? '4px solid white' : '2px solid #000'}; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; color: black; font-weight: bold;`;
-        
-        btn.innerText = isOwned ? (activeSkin === skin.id ? 'USANDO' : 'USAR') : '2 💰';
-        btn.onclick = () => {
-            if(isOwned) {
-                activeSkin = skin.id;
-                localStorage.setItem('billarSkin', skin.id);
-            } else if(coins >= 2) {
-                coins -= 2;
-                ownedSkins.push(skin.id);
-                activeSkin = skin.id;
-                localStorage.setItem('billarCoins', coins);
-                localStorage.setItem('billarOwned', JSON.stringify(ownedSkins));
-                localStorage.setItem('billarSkin', skin.id);
-                playSound(500, 'triangle', 0.3);
-            }
-            updateShopUI();
-        };
-        list.appendChild(btn);
-    });
+    skinStore.forEach((skin, index) => {
+    const isOwned = ownedSkins.includes(skin.id);
+    
+    // ESTA ES LA LÍNEA CLAVE:
+    // Si la skin es de las primeras 4 (0,1,2,3) cuesta 2.
+    // Si es de las siguientes 4 cuesta 5, y así sucesivamente.
+    const price = index < 4 ? 2 : (index < 8 ? 5 : (index < 12 ? 10 : 20));
+    
+    const btn = document.createElement('div');
+    btn.style = `width: 50px; height: 50px; background: ${skin.color}; border-radius: 50%; border: ${activeSkin === skin.id ? '4px solid white' : '2px solid #000'}; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; color: black; font-weight: bold; margin: 5px; flex-shrink: 0;`;
+    
+    // Aquí es donde el botón muestra el precio calculado arriba
+    btn.innerText = isOwned ? (activeSkin === skin.id ? 'USANDO' : 'USAR') : `${price} 💰`;
+    
+    btn.onclick = () => {
+        if(isOwned) {
+            activeSkin = skin.id;
+            localStorage.setItem('billarSkin', skin.id);
+        } else if(coins >= price) {
+            coins -= price;
+            ownedSkins.push(skin.id);
+            activeSkin = skin.id;
+            localStorage.setItem('billarCoins', coins);
+            localStorage.setItem('billarOwned', JSON.stringify(ownedSkins));
+            localStorage.setItem('billarSkin', skin.id);
+        }
+        updateShopUI(); // Refresca para mostrar el nuevo estado
+    };
+    list.appendChild(btn);
+});
 }
 function resetGame() {
     // 1. Limpiamos el estado de derrota
     gameOver = false;
     isStarted = false;
-    
-    // 2. Ocultamos la pantalla de muerte
     document.getElementById('game-over').classList.add('hidden');
-    
-    // 3. Mostramos el menú principal directamente (saltando la selección de control)
     document.getElementById('start-menu').classList.remove('hidden');
+    document.getElementById('diff-slider').value = currentDiffIndex;
+    applyDiff(currentDiffIndex)
     
-    // 4. Aplicamos la dificultad que ya estaba guardada en el slider
-    const savedDiff = localStorage.getItem('billarDiff') || 0;
-    document.getElementById('diff-slider').value = savedDiff;
-    updateDiff(savedDiff); // Esto actualiza el texto de "DIFICULTAD: BASE/DURÍSIMO..."
+}
+function applyDiff(index) {
+    // 1. Guardamos el índice actual globalmente
+    currentDiffIndex = index;
+    
+    // 2. Guardamos la elección en el navegador
+    localStorage.setItem('billarDiff', index);
+    
+    // 3. Verificamos si el nivel está desbloqueado
+    const label = document.getElementById('diff-label');
+    const isUnlocked = index === 0 || unlockedDiffs.includes(diffs[index].id);
+    const prevUnlocked = index === 0 || unlockedDiffs.includes(diffs[index-1].id);
+    
+    // 4. Si el nivel o el anterior están bloqueados, ponemos el candado
+    let lockIcon = (!isUnlocked || !prevUnlocked) ? "🔒 " : "";
+    let text = "DIFICULTAD: " + lockIcon + diffs[index].name;
+    
+    // 5. Pista para el siguiente nivel
+    if(index + 1 < diffs.length) {
+        const next = diffs[index + 1];
+        if(!unlockedDiffs.includes(next.id)) {
+            text += ` (Próximo: ${next.price}💰)`;
+        }
+    }
+    
+    // 6. Aplicamos el texto y cambiamos el color (gris si está bloqueado)
+    label.innerText = text;
+    label.style.color = isUnlocked ? diffs[index].col : "#888";
+}
+window.addEventListener('load', () => {
+    // Sincroniza el slider visualmente
+    document.getElementById('diff-slider').value = currentDiffIndex;
+    // Aplica la dificultad visualmente
+    applyDiff(currentDiffIndex);
+});
+function playSound(freq, type, vol) {
+    if(!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.2);
 }
 </script>
 </body>
