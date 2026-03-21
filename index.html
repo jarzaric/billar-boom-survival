@@ -129,10 +129,21 @@
         </button>
     </div>
 </div>
-
+    <div id="level-complete" class="overlay hidden">
+        <div class="menu-card">
+            <h1 style="color: #4caf50; margin: 0;">HAZ GANADO</h1>
+            <p style="color: #ffeb3b;">¡Felicidades! Has superado el nivel <span id="win-lvl">1</span></p>
+            <p style="color: #fff;">Has ganado <strong>+2 coins</strong>.</p>
+            <div style="display: flex; justify-content: center; gap: 10px; margin-top: 10px;">
+                <button onclick="continueNextLevel()">Continuar</button>
+                <button onclick="returnToMainMenu()" style="background: #2196f3;">Menú</button>
+                <button onclick="openStoreFromWin()" style="background: #ff9800;">Tienda</button>
+            </div>
+        </div>
+    </div>
     <div class="stats">
         <div class="mobile-pause-btn" onclick="togglePause()">||</div>
-        <div>LVL: <span id="lvl-val">1</span></div>
+        <div>DIF: <span id="lvl-val">1</span></div>
         <div>⏱️: <span id="timer">01:30</span></div>
     </div>
     <div id="status-effect" style="color:#00fbff; font-weight: bold;"></div>
@@ -183,7 +194,8 @@ const skinStore = [
 ];
 let difficultyMultiplier = 1;
 let spawnRate = 1800;
-let warningTime = 300;
+let warningYellow = 7000; // en milisegundos
+let redLethal = 2000; // en milisegundos
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -193,6 +205,9 @@ let warningTime = 300;
     let gameIntervals = [];
 let energy = 100; 
 let energyDrain = 0.15; // Velocidad de descarga
+let zoneLimit = { red: 8, blue: 1, purple: 1, coin: 1 };
+let coinsPerLevel = 2;
+let showWinMenu = false;
     const diffs = [
     { id: 'base', name: "BASE", mult: 1.0, freq: 1500, col: "#4deeea", price: 0 },
     { id: 'dificil', name: "DIFICIL", mult: 1.4, freq: 1200, col: "#4caf50", price: 5 },
@@ -209,6 +224,7 @@ function updateDiff(v) {
     // 1. Si es el nivel BASE, permitir siempre
     if (index === 0) {
         applyDiff(index);
+        document.getElementById('lvl-val').innerText = index + 1;
         return;
     }
 
@@ -223,6 +239,7 @@ function updateDiff(v) {
     // 3. Si ya es dueño del nivel actual, permitir el paso
     if (unlockedDiffs.includes(targetDiff.id)) {
         applyDiff(index);
+        document.getElementById('lvl-val').innerText = index + 1;
         return;
     }
 
@@ -235,6 +252,7 @@ function updateDiff(v) {
         localStorage.setItem('billarUnlockedDiffs', JSON.stringify(unlockedDiffs));
         alert(`¡Nivel ${targetDiff.name} desbloqueado por tu récord! 🏆`);
         applyDiff(index);
+        document.getElementById('lvl-val').innerText = index + 1;
     } 
     // 5. OPCIÓN B: Compra con Monedas
     else if (coins >= targetDiff.price) {
@@ -245,6 +263,7 @@ function updateDiff(v) {
             localStorage.setItem('billarUnlockedDiffs', JSON.stringify(unlockedDiffs));
             applyDiff(index);
             if(typeof updateShopUI === 'function') updateShopUI();
+            document.getElementById('lvl-val').innerText = index + 1;
         } else {
             document.getElementById('diff-slider').value = currentDiffIndex;
         }
@@ -261,10 +280,12 @@ function updateDiff(v) {
     
     difficultyMultiplier = d.mult;
     spawnRate = d.freq; 
-    warningTime = d.freq / 5;
+    warningYellow = 7000 - (currentDiffIndex * 1000); // BASE: 7000, DIFICIL: 6000, TREMENDO: 5000, etc.
+    zoneLimit.red = 8; // Todas las dificultades inician con 8
+    if (currentDiffIndex === 5) zoneLimit.red = 10; // LOCURA inicia con 8 + 2 = 10
     ball = { x: 450, y: 275, vx: 0, vy: 0, r: 15, f: 0.985, immune: false };
     zones = []; particles = []; timeLeft = 90; level = 1; energy = 100;
-    document.getElementById('lvl-val').innerText = level;
+    document.getElementById('lvl-val').innerText = currentDiffIndex + 1;
         
 }
 
@@ -283,18 +304,73 @@ if(audioCtx.state === 'suspended') audioCtx.resume();
     if(menu) menu.classList.toggle('hidden', !isPaused);
     if(isPaused) updateShopUI(); // Para que se vean las monedas al pausar
 }
+
+function showLevelComplete() {
+    isPaused = true;
+    showWinMenu = true;
+    document.getElementById('level-complete').classList.remove('hidden');
+}
+
+function continueNextLevel() {
+    if(!showWinMenu) return;
+    showWinMenu = false;
+    document.getElementById('level-complete').classList.add('hidden');
+    isPaused = false;
+    timeLeft = 90;
+    document.getElementById('timer').innerText = `01:30`;
+}
+
+function returnToMainMenu() {
+    isStarted = false;
+    isPaused = false;
+    gameOver = false;
+    showWinMenu = false;
+    gameIntervals.forEach(clearInterval);
+    gameIntervals = [];
+    document.getElementById('level-complete').classList.add('hidden');
+    document.getElementById('game-over').classList.add('hidden');
+    document.getElementById('start-menu').classList.remove('hidden');
+    document.getElementById('control-selection-menu').classList.add('hidden');
+    document.getElementById('camping-warning').style.opacity = 0;
+    document.getElementById('lvl-val').innerText = 1;
+}
+
+function openStoreFromWin() {
+    document.getElementById('level-complete').classList.add('hidden');
+    document.getElementById('pause-menu').classList.remove('hidden');
+    updateShopUI();
+    isPaused = true;
+}
 function startLoops() {
         gameIntervals.forEach(clearInterval);
         gameIntervals = [
             setInterval(() => {
-                if(gameOver || isPaused) return;
+                if(gameOver || isPaused || showWinMenu) return;
                 if(timeLeft > 0) {
                     timeLeft--;
                     document.getElementById('timer').innerText = `0${Math.floor(timeLeft/60)}:${(timeLeft%60).toString().padStart(2,'0')}`;
                 } else {
-                    level++; difficultyMultiplier *= 1.1; 
+                    level++;
+                    coins += coinsPerLevel;
+                    localStorage.setItem('billarCoins', coins);
+                    if(typeof updateShopUI === 'function') updateShopUI();
+
+                    difficultyMultiplier *= 1.1; 
+                    if (currentDiffIndex === 5) { // LOCURA: +2 por nivel hasta 30
+                        zoneLimit.red = Math.min(30, zoneLimit.red + 2);
+                    } else { // Otras dificultades: solo reducir warningYellow
+                        if (warningYellow > 1000) {
+                            warningYellow -= 1000;
+                        }
+                    }
                     spawnRate = Math.max(450, 1800/difficultyMultiplier);
-                    timeLeft = 90; document.getElementById('lvl-val').innerText = level;
+
+                    document.getElementById('lvl-val').innerText = level;
+                    document.getElementById('win-lvl').innerText = level;
+                    document.getElementById('coin-count-ui').innerText = coins;
+
+                    timeLeft = 0;
+                    showLevelComplete();
                 }
             }, 1000),
             setInterval(() => { if(!gameOver && !isPaused) spawnZone('red'); }, spawnRate),
@@ -307,7 +383,6 @@ function startLoops() {
         ];
     }
     function spawnZone(type) {
-     const zoneLimit = { red: 8, blue: 1, purple: 1, coin: 1 };
     const currentCount = zones.filter(z => z.type === type).length;
     
     if (currentCount >= zoneLimit[type]) return; // Don't spawn if limit reached
@@ -328,7 +403,7 @@ function startLoops() {
         y: Math.random() * 450 + 50, 
         r: r, 
         type: type, 
-        a: 0, 
+        spawnTime: performance.now(),
         active: (type !== 'red') // Las rojas nacen inactivas (amarillas), el resto activas
     });
 }
@@ -429,8 +504,8 @@ function update() {
 
     // 2. Bucle de Zonas (Corregido)
     zones.forEach((z, i) => {
-        z.a++;
-        if(z.type === 'red' && z.a > warningTime) z.active = true;
+        let age = performance.now() - z.spawnTime;
+        if(z.type === 'red' && age > warningYellow) z.active = true;
         let dist = Math.hypot(ball.x - z.x, ball.y - z.y);
 
         if(z.type === 'coin' && dist < ball.r + z.r) {
@@ -458,11 +533,11 @@ function update() {
             particles.push(new Pixel(z.x+(Math.random()-0.5)*z.r, z.y+(Math.random()-0.5)*z.r, pCol));
         }
 
-        let lifeTime = warningTime * 3;
-        if(z.a > lifeTime) { 
+        let lifeTime = z.type === 'red' ? warningYellow + redLethal : 10000;
+        if(age > lifeTime) { 
             zones.splice(i, 1); 
         }
-    }); // <-- ESTO CIERRA EL ZONES.FOREACH CORRECTAMENTE
+    }); // <-- ESTO CIERRA EL ZONES.FOREACH CORRECTAMENTAMENTE
 
     // 3. Bucle de Partículas (Independiente)
     particles.forEach((p, i) => { 
@@ -500,6 +575,22 @@ function draw() {
         ctx.fill(); 
         ctx.stroke();
         ctx.shadowBlur = 0; 
+
+        // CONTADOR REGRESIVO EN ZONAS AMARILLAS
+        if(z.type === 'red' && !z.active) {
+            let age = performance.now() - z.spawnTime;
+            let secondsRemaining = Math.ceil((warningYellow - age) / 1000);
+            if(secondsRemaining > 0) {
+                ctx.fillStyle = "rgba(255, 255, 0, 0.15)";
+                ctx.font = "bold 32px Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = "rgba(0,0,0,0.8)";
+                ctx.fillText(secondsRemaining, z.x, z.y);
+                ctx.shadowBlur = 0;
+            }
+        }
     });
 
     particles.forEach(p => p.draw());
@@ -577,10 +668,20 @@ function updateShopUI() {
     // Si es de las siguientes 4 cuesta 5, y así sucesivamente.
     const price = index < 4 ? 2 : (index < 8 ? 5 : (index < 12 ? 10 : 20));
     
-    const btn = document.createElement('div');
-    btn.style = `width: 50px; height: 50px; background: ${skin.color}; border-radius: 50%; border: ${activeSkin === skin.id ? '4px solid white' : '2px solid #000'}; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; color: black; font-weight: bold; margin: 5px; flex-shrink: 0;`;
+    // Contenedor principal (flexbox vertical)
+    const container = document.createElement('div');
+    container.style = `display: flex; flex-direction: column; align-items: center; margin: 10px; cursor: pointer;`;
     
-    // Aquí es donde el botón muestra el precio calculado arriba
+    // Nombre de la skin (encima)
+    const nameLabel = document.createElement('div');
+    nameLabel.style = `font-size: 11px; font-weight: bold; color: #fff; margin-bottom: 3px; text-align: center; width: 60px; word-wrap: break-word;`;
+    nameLabel.innerText = skin.name;
+    
+    // Círculo de color (centro con precio/estado)
+    const btn = document.createElement('div');
+    btn.style = `width: 50px; height: 50px; background: ${skin.color}; border-radius: 50%; border: ${activeSkin === skin.id ? '4px solid white' : '2px solid #000'}; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; color: black; font-weight: bold; flex-shrink: 0;`;
+    
+    // Texto en el centro del círculo (precio o estado)
     btn.innerText = isOwned ? (activeSkin === skin.id ? 'USANDO' : 'USAR') : `${price} 💰`;
     
     btn.onclick = () => {
@@ -597,7 +698,10 @@ function updateShopUI() {
         }
         updateShopUI(); // Refresca para mostrar el nuevo estado
     };
-    list.appendChild(btn);
+    
+    container.appendChild(nameLabel);
+    container.appendChild(btn);
+    list.appendChild(container);
 });
 }
 function resetGame() {
@@ -660,4 +764,3 @@ function playSound(freq, type, vol) {
 </script>
 </body>
 </html>
-
