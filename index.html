@@ -762,5 +762,12 @@ function playSound(freq, type, vol) {
     osc.stop(audioCtx.currentTime + 0.2);
 }
 </script>
+    <script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log("Juego listo para modo offline"))
+      .catch(err => console.log("Error al registrar offline:", err));
+  }
+</script>
 </body>
 </html>
