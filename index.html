@@ -146,7 +146,7 @@
         <div>DIF: <span id="lvl-val">1</span></div>
         <div>⏱️: <span id="timer">01:30</span></div>
     </div>
-    <div id="status-effect" style="color:#00fbff; font-weight: bold;"></div>
+    <div id="status-effect" style="color:#00fbff; font-weight: bold; min-height: 24px;"></div>
 <div class="energy-container">
     <div id="energy-bar"></div>
 </div>
@@ -203,11 +203,17 @@ let redLethal = 2000; // en milisegundos
     let ball, zones, particles, timeLeft, level;
     let isStarted = false, isPaused = false, gameOver = false, isDrawing = false, curPos = {x:0, y:0};
     let gameIntervals = [];
+    let lastFrameTime = 0;
+    let totalPausedDuration = 0;
+    let pauseStartedAt = 0;
+    const IMMUNE_DURATION = 7000;
 let energy = 100; 
 let energyDrain = 0.15; // Velocidad de descarga
 let zoneLimit = { red: 8, blue: 1, purple: 1, coin: 1 };
-let coinsPerLevel = 2;
-let showWinMenu = false;
+let enteredFromWin = false;
+    let lastTime = 0;
+    let coinsPerLevel = 2;
+    let pauseTime = 0;
     const diffs = [
     { id: 'base', name: "BASE", mult: 1.0, freq: 1500, col: "#4deeea", price: 0 },
     { id: 'dificil', name: "DIFICIL", mult: 1.4, freq: 1200, col: "#4caf50", price: 5 },
@@ -274,6 +280,36 @@ function updateDiff(v) {
         document.getElementById('diff-slider').value = currentDiffIndex;
     }
 }
+    function getGameTime() {
+        return performance.now() - totalPausedDuration;
+    }
+
+    function updateImmuneUI() {
+        const effectEl = document.getElementById('status-effect');
+        if (!effectEl) return;
+
+        if (ball && ball.immune && ball.immuneUntil !== null) {
+            const remaining = Math.max(0, ball.immuneUntil - getGameTime());
+            const seconds = (remaining / 1000).toFixed(1);
+            effectEl.innerText = `🛡️ INMUNE ${seconds}s`;
+        } else {
+            effectEl.innerText = "";
+        }
+    }
+
+    function addImmuneTime() {
+        const now = getGameTime();
+        if (!ball.immune || ball.immuneUntil === null) {
+            ball.immune = true;
+            ball.immuneUntil = now + IMMUNE_DURATION;
+        } else {
+            const remaining = Math.max(0, ball.immuneUntil - now);
+            ball.immuneUntil = now + remaining + IMMUNE_DURATION;
+        }
+        updateImmuneUI();
+        playSound(600, 'sine', 0.2);
+    }
+
     function init() {
     // Usamos el índice actual que el slider y applyDiff controlan
     const d = diffs[currentDiffIndex];
@@ -283,8 +319,12 @@ function updateDiff(v) {
     warningYellow = 7000 - (currentDiffIndex * 1000); // BASE: 7000, DIFICIL: 6000, TREMENDO: 5000, etc.
     zoneLimit.red = 8; // Todas las dificultades inician con 8
     if (currentDiffIndex === 5) zoneLimit.red = 10; // LOCURA inicia con 8 + 2 = 10
-    ball = { x: 450, y: 275, vx: 0, vy: 0, r: 15, f: 0.985, immune: false };
+    ball = { x: 450, y: 275, vx: 0, vy: 0, r: 15, f: 0.985, immune: false, immuneUntil: null };
     zones = []; particles = []; timeLeft = 90; level = 1; energy = 100;
+    lastTime = Date.now();
+    lastFrameTime = getGameTime();
+    totalPausedDuration = 0;
+    pauseStartedAt = 0;
     document.getElementById('lvl-val').innerText = currentDiffIndex + 1;
         
 }
@@ -297,17 +337,61 @@ if(audioCtx.state === 'suspended') audioCtx.resume();
         startLoops();
     }
 
+    function clearGameTimers() {
+        gameIntervals.forEach(clearInterval);
+        gameIntervals = [];
+    }
+
     function togglePause() {
-        if(!isStarted || gameOver) return;
+    if(!isStarted || gameOver) return;
     isPaused = !isPaused;
     const menu = document.getElementById('pause-menu');
     if(menu) menu.classList.toggle('hidden', !isPaused);
-    if(isPaused) updateShopUI(); // Para que se vean las monedas al pausar
+    if(isPaused) {
+        pauseStartedAt = performance.now();
+        pauseTime = performance.now();
+        lastFrameTime = getGameTime();
+        clearGameTimers();
+        updateShopUI(); // Para que se vean las monedas al pausar
+        enteredFromWin = false; // Entrada desde pausa normal
+    } else {
+        const delta = performance.now() - pauseStartedAt;
+        totalPausedDuration += delta;
+        pauseStartedAt = 0;
+        const realDelta = performance.now() - pauseTime;
+        zones.forEach(z => z.spawnTime += realDelta);
+        lastFrameTime = getGameTime();
+        startLoops();
+        // Si se reanuda desde tienda abierta desde win, avanzar nivel
+        if (enteredFromWin) {
+            // Copiar lógica de continueNextLevel()
+            if (currentDiffIndex < diffs.length - 1) {
+                const nextIndex = currentDiffIndex + 1;
+                const nextDiff = diffs[nextIndex];
+
+                if (!unlockedDiffs.includes(nextDiff.id)) {
+                    unlockedDiffs.push(nextDiff.id);
+                    localStorage.setItem('billarUnlockedDiffs', JSON.stringify(unlockedDiffs));
+                }
+
+                currentDiffIndex = nextIndex;
+                localStorage.setItem('billarDiff', currentDiffIndex);
+                document.getElementById('diff-slider').value = currentDiffIndex;
+                applyDiff(currentDiffIndex);
+                init();
+                document.getElementById('timer').innerText = `01:30`; // Asegurar que el timer se muestre correctamente
+            }
+            enteredFromWin = false; // Resetear flag
+        }
+    }
 }
 
 function showLevelComplete() {
     isPaused = true;
     showWinMenu = true;
+    pauseStartedAt = performance.now();
+    lastFrameTime = getGameTime();
+    clearGameTimers();
     document.getElementById('level-complete').classList.remove('hidden');
 }
 
@@ -316,7 +400,14 @@ function continueNextLevel() {
     showWinMenu = false;
     document.getElementById('level-complete').classList.add('hidden');
     isPaused = false;
+    if (pauseStartedAt) {
+        totalPausedDuration += performance.now() - pauseStartedAt;
+        pauseStartedAt = 0;
+    }
     timeLeft = 90;
+    lastTime = Date.now();
+    lastFrameTime = getGameTime();
+    startLoops();
     document.getElementById('timer').innerText = `01:30`;
 }
 
@@ -325,8 +416,7 @@ function returnToMainMenu() {
     isPaused = false;
     gameOver = false;
     showWinMenu = false;
-    gameIntervals.forEach(clearInterval);
-    gameIntervals = [];
+    clearGameTimers();
     document.getElementById('level-complete').classList.add('hidden');
     document.getElementById('game-over').classList.add('hidden');
     document.getElementById('start-menu').classList.remove('hidden');
@@ -340,39 +430,16 @@ function openStoreFromWin() {
     document.getElementById('pause-menu').classList.remove('hidden');
     updateShopUI();
     isPaused = true;
+    pauseStartedAt = performance.now();
+    lastFrameTime = getGameTime();
+    clearGameTimers();
+    timeLeft = 90; // Resetear el timer a 01:30 al abrir la tienda desde win
+    document.getElementById('timer').innerText = `01:30`;
 }
+    enteredFromWin = true;
 function startLoops() {
-        gameIntervals.forEach(clearInterval);
+        clearGameTimers();
         gameIntervals = [
-            setInterval(() => {
-                if(gameOver || isPaused || showWinMenu) return;
-                if(timeLeft > 0) {
-                    timeLeft--;
-                    document.getElementById('timer').innerText = `0${Math.floor(timeLeft/60)}:${(timeLeft%60).toString().padStart(2,'0')}`;
-                } else {
-                    level++;
-                    coins += coinsPerLevel;
-                    localStorage.setItem('billarCoins', coins);
-                    if(typeof updateShopUI === 'function') updateShopUI();
-
-                    difficultyMultiplier *= 1.1; 
-                    if (currentDiffIndex === 5) { // LOCURA: +2 por nivel hasta 30
-                        zoneLimit.red = Math.min(30, zoneLimit.red + 2);
-                    } else { // Otras dificultades: solo reducir warningYellow
-                        if (warningYellow > 1000) {
-                            warningYellow -= 1000;
-                        }
-                    }
-                    spawnRate = Math.max(450, 1800/difficultyMultiplier);
-
-                    document.getElementById('lvl-val').innerText = level;
-                    document.getElementById('win-lvl').innerText = level;
-                    document.getElementById('coin-count-ui').innerText = coins;
-
-                    timeLeft = 0;
-                    showLevelComplete();
-                }
-            }, 1000),
             setInterval(() => { if(!gameOver && !isPaused) spawnZone('red'); }, spawnRate),
             setInterval(() => { if(!gameOver && !isPaused) { spawnZone('blue'); spawnZone('purple'); } }, 16000),
             setInterval(() => {
@@ -409,6 +476,7 @@ function startLoops() {
 }
     function endGame(reason) {
         gameOver = true;
+        clearGameTimers();
         if (navigator.vibrate) navigator.vibrate([200, 50, 200]);
         document.getElementById('death-reason').innerText = "Causa: " + reason;
         document.getElementById('final-lvl').innerText = level;
@@ -465,7 +533,20 @@ class Pixel {
     }
 }
 function update() {
-    if(!isStarted || gameOver || isPaused) return;
+    if(!isStarted || gameOver) return;
+    if(isPaused) return;
+
+    const now = getGameTime();
+    const deltaMs = lastFrameTime ? now - lastFrameTime : 16;
+    lastFrameTime = now;
+
+    if(ball.immune && ball.immuneUntil !== null && now >= ball.immuneUntil) {
+        ball.immune = false;
+        ball.immuneUntil = null;
+        updateImmuneUI();
+    } else if (ball.immune && ball.immuneUntil !== null) {
+        updateImmuneUI();
+    }
 
     // 1. Físicas de la bola
     ball.x += ball.vx; 
@@ -519,10 +600,7 @@ function update() {
         if(dist < ball.r + z.r) {
             if(z.type === 'red' && z.active && !ball.immune) endGame("EXPLOSIÓN");
             if(z.type === 'blue') {
-                ball.immune = true;
-                document.getElementById('status-effect').innerText = "🛡️ INMUNE";
-                playSound(600, 'sine', 0.2);
-                setTimeout(() => { ball.immune = false; document.getElementById('status-effect').innerText = ""; }, 7000);
+                addImmuneTime();
                 zones.splice(i, 1);
             }
             if(z.type === 'purple') { ball.vx *= 0.85; ball.vy *= 0.85; }
@@ -544,7 +622,38 @@ function update() {
         p.update(); 
         if(p.l <= 0) particles.splice(i, 1); 
     });
-} // <-- ESTO CIERRA LA FUNCIÓN UPDATE
+
+    // Decrementar tiempo cada segundo
+    if (Date.now() - lastTime > 1000) {
+        lastTime = Date.now();
+        if(timeLeft > 0) {
+            timeLeft--;
+            document.getElementById('timer').innerText = `0${Math.floor(timeLeft/60)}:${(timeLeft%60).toString().padStart(2,'0')}`;
+        } else {
+            level++;
+            coins += coinsPerLevel;
+            localStorage.setItem('billarCoins', coins);
+            if(typeof updateShopUI === 'function') updateShopUI();
+
+            difficultyMultiplier *= 1.1; 
+            if (currentDiffIndex === 5) { // LOCURA: +2 por nivel hasta 30
+                zoneLimit.red = Math.min(30, zoneLimit.red + 2);
+            } else { // Otras dificultades: solo reducir warningYellow
+                if (warningYellow > 1000) {
+                    warningYellow -= 1000;
+                }
+            }
+            spawnRate = Math.max(450, 1800/difficultyMultiplier);
+
+            document.getElementById('lvl-val').innerText = level;
+            document.getElementById('win-lvl').innerText = level;
+            document.getElementById('coin-count-ui').innerText = coins;
+
+            timeLeft = 0;
+            showLevelComplete();
+        }
+    }
+} 
 
 function draw() {
     ctx.clearRect(0,0,900,550);
@@ -762,7 +871,7 @@ function playSound(freq, type, vol) {
     osc.stop(audioCtx.currentTime + 0.2);
 }
 </script>
-    <script>
+<script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js')
       .then(() => console.log("Juego listo para modo offline"))
